@@ -1,0 +1,53 @@
+name: Build SSRTMod Release
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup NuGet (optional)
+        uses: NuGet/setup-nuget@v1
+
+      - name: Download latest MelonLoader release (best-effort)
+        shell: powershell
+        run: |
+          Write-Host "Querying GitHub API for latest MelonLoader release..."
+          $rel = Invoke-RestMethod -Uri "https://api.github.com/repos/LavaGang/MelonLoader/releases/latest" -Headers @{'User-Agent'='github-actions'}
+          $asset = $rel.assets | Where-Object { $_.name -match 'MelonLoader' } | Select-Object -First 1
+          if ($null -eq $asset) { Write-Warning 'MelonLoader asset not found in release JSON. You may need to upload MelonLoader.dll to the repo manually.'; exit 0 }
+          $url = $asset.browser_download_url
+          Write-Host "Downloading $($asset.name) from $url"
+          Invoke-WebRequest -Uri $url -OutFile melon.zip
+          Expand-Archive -Path melon.zip -DestinationPath melon_extract -Force
+          # Try to find MelonLoader.dll inside extracted files
+          Get-ChildItem -Path melon_extract -Recurse -Filter "MelonLoader.dll" | ForEach-Object {
+            Copy-Item -Path $_.FullName -Destination libs\ -Force
+          }
+      - name: Ensure libs folder exists
+        run: |
+          if (!(Test-Path libs)) { New-Item -ItemType Directory libs }
+
+      - name: Build with MSBuild
+        shell: powershell
+        run: |
+          Write-Host "Locating MSBuild..."
+          $msbuild = "msbuild"
+          Write-Host "MSBuild command: $msbuild"
+          & $msbuild ".\SSRTMod.csproj" /p:Configuration=Release /verbosity:minimal
+        env:
+          DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+
+      - name: Upload Release DLL artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SSRTMod-Release
+          path: |
+            bin\Release\SSRTMod.dll
+            bin\Release\SSRTMod.pdb

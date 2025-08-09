@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AssemblyName>SSRTMod</AssemblyName>
+    <RootNamespace>SSRTMod</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="MelonLoader">
+      <HintPath>libs\MelonLoader.dll</HintPath>
+    </Reference>
+  </ItemGroup>
+</Project>

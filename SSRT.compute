@@ -1,0 +1,67 @@
+// SSRT.compute - simple conceptual screen-space ray march
+#pragma kernel CSMain
+
+RWTexture2D<float4> Result;
+Texture2D<float> _DepthTex;
+Texture2D<float4> _NormalTex;
+SamplerState samplerLinear;
+
+float _MaxDistance;
+float _Thickness;
+int _MaxSteps;
+int _FrameIndex;
+matrix _ProjectionMatrix;
+matrix _InvProjectionMatrix;
+matrix _CameraToWorld;
+
+float3 ReconstructPosition(float2 uv, float depth)
+{
+    // reconstruct view-space position approximate
+    float4 ndc = float4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+    float4 clip = mul(_InvProjectionMatrix, ndc);
+    clip /= clip.w;
+    float3 worldPos = mul(_CameraToWorld, clip).xyz;
+    return worldPos;
+}
+
+[numthreads(8,8,1)]
+void CSMain (uint3 id : SV_DispatchThreadID)
+{
+    uint2 pix = id.xy;
+    uint width, height;
+    Result.GetDimensions(width, height);
+    if (pix.x >= width || pix.y >= height) return;
+
+    float2 uv = (float2(pix) + 0.5) / float2(width, height);
+
+    float depth = _DepthTex.SampleLevel(samplerLinear, uv, 0).r;
+    float4 nSample = _NormalTex.SampleLevel(samplerLinear, uv, 0);
+    float3 normal = normalize(nSample.xyz * 2.0 - 1.0);
+
+    float3 pos = ReconstructPosition(uv, depth);
+
+    float occ = 0.0;
+    for (int i = 1; i <= _MaxSteps; i++)
+    {
+        float t = (i / (float)_MaxSteps) * _MaxDistance;
+        float3 samplePos = pos + normal * t;
+        // project samplePos back to screen
+        float4 clipPos = mul(_ProjectionMatrix, mul(float4(samplePos,1), float4x4(1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1)));
+        clipPos /= clipPos.w;
+        float2 sampleNDC = clipPos.xy * 0.5 + 0.5;
+        if (sampleNDC.x < 0 || sampleNDC.x > 1 || sampleNDC.y < 0 || sampleNDC.y > 1) break;
+        float sampleDepth = _DepthTex.SampleLevel(samplerLinear, sampleNDC, 0).r;
+        float3 sampleWorld = ReconstructPosition(sampleNDC, sampleDepth);
+        float d = distance(sampleWorld, samplePos);
+        if (d < _Thickness)
+        {
+            occ = 0.0;
+            break;
+        }
+        occ = 1.0;
+    }
+
+    float3 baseCol = abs(normal);
+    float3 col = lerp(baseCol * 0.2, baseCol, occ);
+    Result[pix] = float4(col,1.0);
+}
